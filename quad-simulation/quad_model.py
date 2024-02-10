@@ -10,7 +10,7 @@ dt = 0.01
 class QuadCopter:
     arm_length = 1
     mass = 1
-
+    inertia = np.array([0.1, 0.1, 1])
 
     color = "lightcoral"
     x_pos_ax_color = "red"
@@ -47,37 +47,72 @@ class QuadCopter:
         # print(f"R_body2inertial = \n{R_body2inertial}")
         
     def simulate_physics(self):
-
-        thrust = -10
-
-
-        dt = 0.1
-
         t = np.linspace(0, dt, 2)
-        print(f"t = {t}")
 
+        F = np.zeros(3)
+        F[2] = -9.81
 
-        z = self.rOG_inert[2]
+        x_dot = 0
+        y_dot = 0
         z_dot = 0
 
-        z_state = np.zeros(2)
-        # # The initial speed vector is oriented
-        # # to the top right.
-        z_state[0] = z
-        z_state[1] = z_dot
+        L = np.zeros(3)
 
-        print(f"z_state0 = {z_state}")
-        v1 = spi.odeint(self.alt_sspace, z_state, t, args=())
-        print(f"z_state1 = {v1[1]}")
+        X = np.zeros(12)
+        X[0] = self.rOG_inert[0]
+        X[1] = x_dot
+        X[2] = self.rOG_inert[1]
+        X[3] = y_dot
+        X[4] = self.rOG_inert[2]
+        X[5] = z_dot
+
+        roll_rate = 0
+        pitch_rate = 0
+        yaw_rate = 0
+
+        X[6] = self.euler_angles[2] # Roll
+        X[7] = roll_rate
+        X[8] = self.euler_angles[1] # Pitch
+        X[9] = pitch_rate
+        X[10] = self.euler_angles[0] # Yaw
+        X[11] = yaw_rate
+
+        print(f"State Vector (t0) = {X}")
+        X1 = spi.odeint(self.eqn_of_motion, X, t, args=(F, self.mass, L, self.inertia))
+
+        X = X1[1]
+        print(f"State Vector (t1) = {X}")
+
 
         return 1
     
-    def alt_sspace(self, z_state, mass):
+    def eqn_of_motion(self, X, t, F, mass, L, I):
 
-        z_dot = z_state[1] 
-        z_ddot = mass * gravity
-        
-        return [z_dot, z_ddot]
+        # Linear Equations of Motion
+        x_dot = X[1] 
+        x_ddot = F[0]
+        y_dot = X[3] 
+        y_ddot = F[1]
+        z_dot = X[5] 
+        z_ddot = mass * gravity + F[2]
+
+        linear_eom = [x_dot, x_ddot, y_dot, y_ddot, z_dot, z_ddot]
+     
+        # Angular Equations of Motion
+        I11 = self.inertia[0]
+        I22 = self.inertia[1]
+        I33 = self.inertia[2]
+
+        w1 = X[7]
+        w2 = X[9]
+        w3 = X[11]
+        w1_dot = -(I33 - I22) * w2 * w3  / I11 + L[0] / I11
+        w2_dot = -(I11 - I33) * w3 * w1  / I22 + L[1] / I22
+        w3_dot = -(I22 - I11) * w1 * w2  / I33 + L[2] / I33
+
+        angular_eom = [w1, w1_dot, w2, w2_dot, w3, w3_dot]
+
+        return linear_eom + angular_eom
 
 
     def plot_quad(self, ax):
